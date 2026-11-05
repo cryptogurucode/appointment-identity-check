@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appointment Identity Check</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 20px;
+  background: #f1f4f8;
+  font-family: Arial, sans-serif;
+  color: #202b3c;
+}
+.container {
+  max-width: 480px;
+  margin: 25px auto;
+  padding: 24px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px #0001;
+}
+h2 { text-align: center; color: #174b85; }
+p { font-size: 14px; line-height: 1.6; }
+.notice {
+  background: #eef5ff;
+  padding: 14px;
+  border-radius: 9px;
+}
+video {
+  width: 100%;
+  background: #111;
+  border-radius: 10px;
+  margin-top: 15px;
+}
+button {
+  width: 100%;
+  padding: 15px;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #174b85;
+  color: white;
+  font-size: 15px;
+  font-weight: bold;
+}
+button:disabled { opacity: .45; }
+#status { text-align: center; font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h2>Appointment Identity Check</h2>
+
+<p>Please record a 15-second selfie video for your appointment identity-check process.</p>
+
+<div class="notice">
+<strong>Privacy notice</strong>
+<p>This is an independent appointment assistance service, not an embassy, VFS Global or government agency.</p>
+<p>Your video will be used only for the stated appointment purpose. Before submitting, you can review your recording. The intended storage is the service owner's private Google Drive, with manual deletion.</p>
+<p>Contact: mathewadeba0@gmail.com</p>
+</div>
+
+<p>
+<input type="checkbox" id="consent">
+<label for="consent">
+I have read the privacy notice and voluntarily consent to recording and submitting my video for this purpose.
+</label>
+</p>
+
+<button id="start" disabled>Enable Camera & Start Recording</button>
+
+<video id="preview" autoplay muted playsinline></video>
+
+<p id="timer"></p>
+
+<button id="stop" disabled>Stop Recording</button>
+<button id="submit" disabled>Submit Video</button>
+
+<p id="status" role="status"></p>
+
+</div>
+
+<script>
+let stream;
+let recorder;
+let chunks = [];
+let recordedBlob;
+let countdown;
+let seconds = 15;
+
+const consent = document.getElementById("consent");
+const start = document.getElementById("start");
+const stop = document.getElementById("stop");
+const submit = document.getElementById("submit");
+const preview = document.getElementById("preview");
+const status = document.getElementById("status");
+const timer = document.getElementById("timer");
+
+consent.addEventListener("change", () => {
+  start.disabled = !consent.checked;
+});
+
+async function startRecording() {
+  try {
+    if (!consent.checked) return;
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+      audio: true
+    });
+
+    preview.srcObject = stream;
+    chunks = [];
+
+    let type = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+      ? "video/webm;codecs=vp8,opus"
+      : "video/webm";
+
+    recorder = new MediaRecorder(stream, { mimeType: type });
+
+    recorder.ondataavailable = e => {
+      if (e.data.size) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      recordedBlob = new Blob(chunks, {type: recorder.mimeType});
+      preview.srcObject = null;
+      preview.src = URL.createObjectURL(recordedBlob);
+      preview.controls = true;
+      stream.getTracks().forEach(track => track.stop());
+      submit.disabled = recordedBlob.size > 20 * 1024 * 1024;
+      status.textContent = submit.disabled
+        ? "Video is too large. Please record again."
+        : "Recording complete. Review your video.";
+    };
+
+    recorder.start();
+    seconds = 15;
+    start.disabled = true;
+    stop.disabled = false;
+    submit.disabled = true;
+    status.textContent = "Recording...";
+
+    timer.textContent = "15 seconds remaining";
+
+    countdown = setInterval(() => {
+      seconds--;
+      timer.textContent = seconds + " seconds remaining";
+      if (seconds <= 0) stopRecording();
+    }, 1000);
+
+  } catch (error) {
+    status.textContent = "Camera error: " + error.name +
+      " — " + error.message;
+  }
+}
+
+function stopRecording() {
+  clearInterval(countdown);
+  if (recorder && recorder.state !== "inactive") {
+    recorder.stop();
+  }
+  stop.disabled = true;
+  start.disabled = false;
+}
+
+function submitVideo() {
+  if (!recordedBlob || !consent.checked) return;
+
+  status.textContent =
+    "The Drive upload connection has not been configured yet.";
+}
+ 
+start.addEventListener("click", startRecording);
+stop.addEventListener("click", stopRecording);
+submit.addEventListener("click", submitVideo);
+</script>
+</body>
+</html>
