@@ -8,17 +8,14 @@
 <style>
 * { box-sizing: border-box; }
 body {
-  margin: 0;
-  padding: 20px;
+  margin: 0; padding: 20px;
   background: #f1f4f8;
   font-family: Arial, sans-serif;
   color: #202b3c;
 }
 .container {
-  max-width: 480px;
-  margin: 25px auto;
-  padding: 24px;
-  background: white;
+  max-width: 480px; margin: 25px auto;
+  padding: 24px; background: white;
   border-radius: 15px;
   box-shadow: 0 5px 20px #0001;
 }
@@ -26,28 +23,28 @@ h2 { text-align: center; color: #174b85; }
 p { font-size: 14px; line-height: 1.6; }
 .notice {
   background: #eef5ff;
-  padding: 14px;
-  border-radius: 9px;
+  padding: 14px; border-radius: 9px;
 }
 video {
-  width: 100%;
-  background: #111;
-  border-radius: 10px;
-  margin-top: 15px;
+  width: 100%; background: #111;
+  border-radius: 10px; margin-top: 15px;
+}
+input[type="text"] {
+  width: 100%; padding: 13px;
+  border: 1px solid #ccd3dc;
+  border-radius: 8px; font-size: 16px;
+  margin-top: 8px;
 }
 button {
-  width: 100%;
-  padding: 15px;
-  margin-top: 12px;
-  border: 0;
-  border-radius: 8px;
-  background: #174b85;
-  color: white;
-  font-size: 15px;
+  width: 100%; padding: 15px;
+  margin-top: 12px; border: 0;
+  border-radius: 8px; background: #174b85;
+  color: white; font-size: 15px;
   font-weight: bold;
 }
 button:disabled { opacity: .45; }
 #status { text-align: center; font-weight: bold; }
+.small { font-size: 12px; color: #667085; }
 </style>
 </head>
 <body>
@@ -60,9 +57,16 @@ button:disabled { opacity: .45; }
 <div class="notice">
 <strong>Privacy notice</strong>
 <p>This is an independent appointment assistance service, not an embassy, VFS Global or government agency.</p>
-<p>Your video will be used only for the stated appointment purpose. Before submitting, you can review your recording. The intended storage is the service owner's private Google Drive, with manual deletion.</p>
+<p>Your video will be used only for the stated appointment identity-check purpose and stored in the service owner's private Google Drive. The service owner will manually delete submitted videos after they are no longer needed.</p>
+<p>You may decline consent and choose not to submit a video.</p>
 <p>Contact: mathewadeba0@gmail.com</p>
 </div>
+
+<p>
+<label for="accessCode"><strong>Your customer access code</strong></label>
+<input type="text" id="accessCode" placeholder="Enter your access code"
+autocomplete="off" autocapitalize="characters">
+</p>
 
 <p>
 <input type="checkbox" id="consent">
@@ -81,61 +85,102 @@ I have read the privacy notice and voluntarily consent to recording and submitti
 <button id="submit" disabled>Submit Video</button>
 
 <p id="status" role="status"></p>
+<p class="small">Maximum video size: 20 MB. Recording duration: 15 seconds.</p>
+
+<iframe name="uploadFrame" id="uploadFrame"
+style="display:none" title="Secure upload response"></iframe>
+
+<form id="uploadForm" method="POST" target="uploadFrame"
+style="display:none">
+</form>
 
 </div>
 
 <script>
+const SCRIPT_URL =
+"https://script.google.com/macros/s/AKfycbwFmAiUZ6VPrHFPhKouqTJls93JxA8Zp3ZmCbavc632M037_WrIb1J3aGU-WSUQc9ldLQ/exec";
+
+const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+
 let stream;
 let recorder;
 let chunks = [];
 let recordedBlob;
 let countdown;
 let seconds = 15;
+let activeRequestId = null;
+let uploadTimeout;
 
 const consent = document.getElementById("consent");
+const accessCode = document.getElementById("accessCode");
 const start = document.getElementById("start");
 const stop = document.getElementById("stop");
 const submit = document.getElementById("submit");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
 const timer = document.getElementById("timer");
+const uploadFrame = document.getElementById("uploadFrame");
+const uploadForm = document.getElementById("uploadForm");
 
-consent.addEventListener("change", () => {
-  start.disabled = !consent.checked;
-});
+consent.addEventListener("change", updateControls);
+accessCode.addEventListener("input", updateControls);
+
+function updateControls() {
+  start.disabled = !(consent.checked && accessCode.value.trim());
+}
 
 async function startRecording() {
   try {
-    if (!consent.checked) return;
+    if (!consent.checked || !accessCode.value.trim()) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Your browser does not support camera recording.");
+    }
 
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "user" },
-      audio: true
+      audio: false
     });
 
+    preview.controls = false;
+    preview.src = "";
     preview.srcObject = stream;
     chunks = [];
+    recordedBlob = null;
 
-    let type = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-      ? "video/webm;codecs=vp8,opus"
-      : "video/webm";
+    let type = "video/webm";
+
+    if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) {
+      type = "video/webm;codecs=vp8";
+    } else if (MediaRecorder.isTypeSupported("video/mp4")) {
+      type = "video/mp4";
+    }
 
     recorder = new MediaRecorder(stream, { mimeType: type });
 
     recorder.ondataavailable = e => {
-      if (e.data.size) chunks.push(e.data);
+      if (e.data && e.data.size) chunks.push(e.data);
     };
 
     recorder.onstop = () => {
-      recordedBlob = new Blob(chunks, {type: recorder.mimeType});
+      recordedBlob = new Blob(chunks, {
+        type: recorder.mimeType || "video/webm"
+      });
+
       preview.srcObject = null;
       preview.src = URL.createObjectURL(recordedBlob);
       preview.controls = true;
-      stream.getTracks().forEach(track => track.stop());
-      submit.disabled = recordedBlob.size > 20 * 1024 * 1024;
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      submit.disabled = recordedBlob.size > MAX_VIDEO_BYTES;
+
       status.textContent = submit.disabled
         ? "Video is too large. Please record again."
-        : "Recording complete. Review your video.";
+        : "Recording complete. Review your video before submitting.";
     };
 
     recorder.start();
@@ -154,27 +199,130 @@ async function startRecording() {
     }, 1000);
 
   } catch (error) {
-    status.textContent = "Camera error: " + error.name +
-      " — " + error.message;
+    status.textContent = "Camera error: " + error.message;
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    start.disabled = false;
   }
 }
 
 function stopRecording() {
   clearInterval(countdown);
+
   if (recorder && recorder.state !== "inactive") {
     recorder.stop();
   }
+
   stop.disabled = true;
   start.disabled = false;
 }
 
-function submitVideo() {
+function addField(name, value) {
+  const field = document.createElement("input");
+  field.type = "hidden";
+  field.name = name;
+  field.value = value;
+  uploadForm.appendChild(field);
+}
+
+function uploadResult(event) {
+  if (event.source !== uploadFrame.contentWindow) return;
+
+  const result = event.data;
+
+  if (!result || result.type !== "identity-upload-result") return;
+  if (result.requestId !== activeRequestId) return;
+
+  clearTimeout(uploadTimeout);
+  activeRequestId = null;
+
+  submit.disabled = false;
+  start.disabled = false;
+  accessCode.disabled = false;
+
+  status.textContent = result.message;
+
+  if (result.success) {
+    recordedBlob = null;
+    submit.disabled = true;
+    start.disabled = true;
+    accessCode.value = "";
+    consent.checked = false;
+    updateControls();
+  }
+}
+
+window.addEventListener("message", uploadResult);
+
+async function submitVideo() {
   if (!recordedBlob || !consent.checked) return;
 
-  status.textContent =
-    "The Drive upload connection has not been configured yet.";
+  const customerCode = accessCode.value.trim().toUpperCase();
+
+  if (!customerCode) {
+    status.textContent = "Please enter your customer access code.";
+    return;
+  }
+
+  if (recordedBlob.size > MAX_VIDEO_BYTES) {
+    status.textContent = "Video exceeds the 20 MB limit.";
+    return;
+  }
+
+  submit.disabled = true;
+  start.disabled = true;
+  accessCode.disabled = true;
+  status.textContent = "Preparing your video for secure submission...";
+
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Could not read the video."));
+      reader.readAsDataURL(recordedBlob);
+    });
+
+    const base64 = dataUrl.split(",")[1];
+
+    uploadForm.action = SCRIPT_URL;
+    uploadForm.innerHTML = "";
+
+    activeRequestId = Date.now().toString() +
+      Math.random().toString(36).slice(2);
+
+    addField("requestId", activeRequestId);
+    addField("accessCode", customerCode);
+    addField("consent", "true");
+    addField("mimeType", recordedBlob.type || "video/webm");
+    addField("video", base64);
+
+    status.textContent = "Uploading your video. Please keep this page open...";
+
+    uploadTimeout = setTimeout(() => {
+      if (activeRequestId) {
+        activeRequestId = null;
+        submit.disabled = false;
+        start.disabled = false;
+        accessCode.disabled = false;
+        status.textContent =
+          "No upload confirmation received. Please check your connection before trying again.";
+      }
+    }, 120000);
+
+    uploadForm.submit();
+
+  } catch (error) {
+    clearTimeout(uploadTimeout);
+    activeRequestId = null;
+    submit.disabled = false;
+    start.disabled = false;
+    accessCode.disabled = false;
+    status.textContent = "Upload error: " + error.message;
+  }
 }
- 
+
 start.addEventListener("click", startRecording);
 stop.addEventListener("click", stopRecording);
 submit.addEventListener("click", submitVideo);
